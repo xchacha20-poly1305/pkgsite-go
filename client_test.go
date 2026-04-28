@@ -287,6 +287,29 @@ func TestAPIError(t *testing.T) {
 	}
 }
 
+func TestAPIErrorWithoutJSONBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	_, err := c.Package(context.Background(), "encoding/json", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want *APIError", err)
+	}
+	if apiErr.Code != http.StatusTooManyRequests {
+		t.Errorf("Code = %d, want %d", apiErr.Code, http.StatusTooManyRequests)
+	}
+	if apiErr.Message != http.StatusText(http.StatusTooManyRequests) {
+		t.Errorf("Message = %q, want %q", apiErr.Message, http.StatusText(http.StatusTooManyRequests))
+	}
+}
+
 func pageServer[T any](t *testing.T, path, limit string, resp Page[T]) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

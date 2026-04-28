@@ -435,7 +435,10 @@ func (c *Client) get(ctx context.Context, rawURL string, dst any) error {
 			}
 			return &apiErr
 		}
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
+		return &APIError{
+			Code:    resp.StatusCode,
+			Message: http.StatusText(resp.StatusCode),
+		}
 	}
 	return json.NewDecoder(resp.Body).Decode(dst)
 }
