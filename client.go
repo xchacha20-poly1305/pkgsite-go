@@ -15,7 +15,8 @@ import (
 
 const (
 	// DefaultServer is the default pkgsite API server.
-	DefaultServer = "https://pkg.go.dev"
+	DefaultServer    = "https://pkg.go.dev"
+	DefaultUserAgent = "pkgsite-go"
 )
 
 // Client fetches data from the pkg.go.dev v1 API.
@@ -39,6 +40,9 @@ func NewClient(options ...Option) *Client {
 	}
 	if c.httpClient == nil {
 		c.httpClient = http.DefaultClient
+	}
+	if c.userAgent == "" {
+		c.userAgent = DefaultUserAgent
 	}
 	return c
 }
