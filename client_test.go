@@ -298,15 +298,36 @@ func TestAPIErrorWithoutJSONBody(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var apiErr *APIError
-	if !errors.As(err, &apiErr) {
-		t.Fatalf("error type = %T, want *APIError", err)
+	var httpErr HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error type = %T, want HTTPError", err)
 	}
-	if apiErr.Code != http.StatusTooManyRequests {
-		t.Errorf("Code = %d, want %d", apiErr.Code, http.StatusTooManyRequests)
+	if httpErr != HTTPError(http.StatusTooManyRequests) {
+		t.Errorf("HTTPError = %d, want %d", httpErr, http.StatusTooManyRequests)
 	}
-	if apiErr.Message != http.StatusText(http.StatusTooManyRequests) {
-		t.Errorf("Message = %q, want %q", apiErr.Message, http.StatusText(http.StatusTooManyRequests))
+	if got, want := err.Error(), "Too Many Requests (HTTP 429)"; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestHTTPErrorWithInvalidJSONBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+		w.Write([]byte("server panic"))
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	_, err := c.Package(context.Background(), "encoding/json", nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var httpErr HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error type = %T, want HTTPError", err)
+	}
+	if httpErr != HTTPError(http.StatusBadGateway) {
+		t.Errorf("HTTPError = %d, want %d", httpErr, http.StatusBadGateway)
 	}
 }
 

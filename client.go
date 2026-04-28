@@ -71,6 +71,8 @@ func WithUserAgent(userAgent string) Option {
 	}
 }
 
+var _ error = (*APIError)(nil)
+
 // APIError is the error format returned by the v1 API.
 type APIError struct {
 	Code       int         `json:"code"`
@@ -94,6 +96,15 @@ func (e *APIError) Error() string {
 		return b.String()
 	}
 	return fmt.Sprintf("%s (HTTP %d)", e.Message, e.Code)
+}
+
+var _ error = HTTPError(0)
+
+// HTTPError is the error indicated by HTTP status code.
+type HTTPError int
+
+func (h HTTPError) Error() string {
+	return fmt.Sprintf("%s (HTTP %d)", http.StatusText(int(h)), h)
 }
 
 // Package is the JSON response for /v1/package/.
@@ -430,7 +441,7 @@ func (c *Client) get(ctx context.Context, rawURL string, dst any) error {
 	if resp.StatusCode != http.StatusOK {
 		body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
 		if err != nil {
-			return fmt.Errorf("reading error response: %w", err)
+			return HTTPError(resp.StatusCode)
 		}
 		var apiErr APIError
 		if json.Unmarshal(body, &apiErr) == nil && apiErr.Message != "" {
@@ -439,10 +450,7 @@ func (c *Client) get(ctx context.Context, rawURL string, dst any) error {
 			}
 			return &apiErr
 		}
-		return &APIError{
-			Code:    resp.StatusCode,
-			Message: http.StatusText(resp.StatusCode),
-		}
+		return HTTPError(resp.StatusCode)
 	}
 	return json.NewDecoder(resp.Body).Decode(dst)
 }
