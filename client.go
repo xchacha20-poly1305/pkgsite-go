@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -129,6 +130,8 @@ type License struct {
 	Contents string   `json:"contents,omitempty"`
 }
 
+var _ queryOptions = (*PackageOptions)(nil)
+
 // PackageOptions configures package-related requests.
 type PackageOptions struct {
 	Version  string
@@ -141,6 +144,10 @@ type PackageOptions struct {
 	GOARCH   string
 	Limit    int
 	Token    string
+}
+
+func (o *PackageOptions) setToken(token string) {
+	o.Token = token
 }
 
 // Package fetches package metadata.
@@ -266,6 +273,8 @@ type Readme struct {
 	Contents string `json:"contents"`
 }
 
+var _ queryOptions = (*ModuleOptions)(nil)
+
 // ModuleOptions configures module-related requests.
 type ModuleOptions struct {
 	Version  string
@@ -273,6 +282,10 @@ type ModuleOptions struct {
 	Licenses bool
 	Limit    int
 	Token    string
+}
+
+func (o *ModuleOptions) setToken(token string) {
+	o.Token = token
 }
 
 // Module fetches module metadata.
@@ -391,11 +404,17 @@ type SearchResult struct {
 	Synopsis    string `json:"synopsis"`
 }
 
+var _ queryOptions = (*SearchOptions)(nil)
+
 // SearchOptions configures search requests.
 type SearchOptions struct {
 	Symbol string
 	Limit  int
 	Token  string
+}
+
+func (o *SearchOptions) setToken(token string) {
+	o.Token = token
 }
 
 // Search searches packages.
@@ -488,4 +507,147 @@ func addLimit(q url.Values, limit int) {
 		limit = 100
 	}
 	q.Set("limit", strconv.Itoa(limit))
+}
+
+type queryOptions interface {
+	setToken(token string)
+}
+
+func paginateSeq[T any, O queryOptions](
+	ctx context.Context,
+	options O,
+	fetch func(context.Context, O) (items []T, nextToken string, err error),
+) iter.Seq2[[]T, error] {
+	return func(yield func([]T, error) bool) {
+		for {
+			items, nextToken, err := fetch(ctx, options)
+			if err != nil {
+				if !yield(nil, err) {
+					return
+				}
+				continue
+			}
+			if !yield(items, nil) {
+				return
+			}
+			if nextToken == "" {
+				return
+			}
+			options.setToken(nextToken)
+		}
+	}
+}
+
+// SymbolsIter returns an iterator for paginating through symbols.
+// The iterator yields pages of symbols. If Next returns an error, the next call
+// to Next will retry the same page.
+func (c *Client) SymbolsIter(ctx context.Context, path string, options *PackageOptions) iter.Seq2[[]Symbol, error] {
+	optionsCopy := PackageOptions{}
+	if options != nil {
+		optionsCopy = *options
+	}
+	return paginateSeq(ctx, &optionsCopy,
+		func(ctx context.Context, currentOptions *PackageOptions) ([]Symbol, string, error) {
+			page, err := c.Symbols(ctx, path, currentOptions)
+			if err != nil {
+				return nil, "", err
+			}
+			return page.Items, page.NextPageToken, nil
+		},
+	)
+}
+
+// ImportedByIter returns an iterator for paginating through imported-by packages.
+// The iterator yields pages of package paths. If Next returns an error, the next call
+// to Next will retry the same page.
+func (c *Client) ImportedByIter(ctx context.Context, path string, options *PackageOptions) iter.Seq2[[]string, error] {
+	optionsCopy := PackageOptions{}
+	if options != nil {
+		optionsCopy = *options
+	}
+	return paginateSeq(ctx, &optionsCopy,
+		func(ctx context.Context, currentOptions *PackageOptions) ([]string, string, error) {
+			result, err := c.ImportedBy(ctx, path, currentOptions)
+			if err != nil {
+				return nil, "", err
+			}
+			return result.ImportedBy.Items, result.ImportedBy.NextPageToken, nil
+		},
+	)
+}
+
+// VersionsIter returns an iterator for paginating through module versions.
+// The iterator yields pages of versions. If Next returns an error, the next call
+// to Next will retry the same page.
+func (c *Client) VersionsIter(ctx context.Context, path string, options *ModuleOptions) iter.Seq2[[]Version, error] {
+	optionsCopy := ModuleOptions{}
+	if options != nil {
+		optionsCopy = *options
+	}
+	return paginateSeq(ctx, &optionsCopy,
+		func(ctx context.Context, currentOptions *ModuleOptions) ([]Version, string, error) {
+			page, err := c.Versions(ctx, path, currentOptions)
+			if err != nil {
+				return nil, "", err
+			}
+			return page.Items, page.NextPageToken, nil
+		},
+	)
+}
+
+// VulnsIter returns an iterator for paginating through vulnerabilities.
+// The iterator yields pages of vulnerabilities. If Next returns an error, the next call
+// to Next will retry the same page.
+func (c *Client) VulnsIter(ctx context.Context, path string, options *ModuleOptions) iter.Seq2[[]Vulnerability, error] {
+	optionsCopy := ModuleOptions{}
+	if options != nil {
+		optionsCopy = *options
+	}
+	return paginateSeq(ctx, &optionsCopy,
+		func(ctx context.Context, currentOptions *ModuleOptions) ([]Vulnerability, string, error) {
+			page, err := c.Vulns(ctx, path, currentOptions)
+			if err != nil {
+				return nil, "", err
+			}
+			return page.Items, page.NextPageToken, nil
+		},
+	)
+}
+
+// PackagesIter returns an iterator for paginating through packages in a module.
+// The iterator yields pages of packages. If Next returns an error, the next call
+// to Next will retry the same page.
+func (c *Client) PackagesIter(ctx context.Context, modulePath string, options *ModuleOptions) iter.Seq2[[]ModulePackage, error] {
+	optionsCopy := ModuleOptions{}
+	if options != nil {
+		optionsCopy = *options
+	}
+	return paginateSeq(ctx, &optionsCopy,
+		func(ctx context.Context, currentOptions *ModuleOptions) ([]ModulePackage, string, error) {
+			page, err := c.Packages(ctx, modulePath, currentOptions)
+			if err != nil {
+				return nil, "", err
+			}
+			return page.Items, page.NextPageToken, nil
+		},
+	)
+}
+
+// SearchIter returns an iterator for paginating through search results.
+// The iterator yields pages of search results. If Next returns an error, the next call
+// to Next will retry the same page.
+func (c *Client) SearchIter(ctx context.Context, query string, options *SearchOptions) iter.Seq2[[]SearchResult, error] {
+	optionsCopy := SearchOptions{}
+	if options != nil {
+		optionsCopy = *options
+	}
+	return paginateSeq(ctx, &optionsCopy,
+		func(ctx context.Context, currentOptions *SearchOptions) ([]SearchResult, string, error) {
+			page, err := c.Search(ctx, query, currentOptions)
+			if err != nil {
+				return nil, "", err
+			}
+			return page.Items, page.NextPageToken, nil
+		},
+	)
 }

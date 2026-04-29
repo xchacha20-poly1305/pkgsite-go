@@ -215,6 +215,263 @@ func TestSymbols(t *testing.T) {
 	}
 }
 
+func TestSymbolsIter(t *testing.T) {
+	count := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if count == 1 {
+			json.NewEncoder(w).Encode(Page[Symbol]{
+				Items: []Symbol{
+					{Name: "Marshal", Kind: "func"},
+					{Name: "Unmarshal", Kind: "func"},
+				},
+				NextPageToken: "page2",
+			})
+		} else if count == 2 {
+			json.NewEncoder(w).Encode(Page[Symbol]{
+				Items: []Symbol{
+					{Name: "MarshalIndent", Kind: "func"},
+				},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	var allSymbols []Symbol
+	for symbols, err := range c.SymbolsIter(context.Background(), "encoding/json", nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		allSymbols = append(allSymbols, symbols...)
+	}
+
+	if len(allSymbols) != 3 {
+		t.Errorf("len(allSymbols) = %d, want 3", len(allSymbols))
+	}
+	if allSymbols[0].Name != "Marshal" {
+		t.Errorf("first symbol = %q, want Marshal", allSymbols[0].Name)
+	}
+	if allSymbols[2].Name != "MarshalIndent" {
+		t.Errorf("last symbol = %q, want MarshalIndent", allSymbols[2].Name)
+	}
+}
+
+func TestSymbolsIterWithRetry(t *testing.T) {
+	callCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		json.NewEncoder(w).Encode(Page[Symbol]{
+			Items: []Symbol{{Name: "Marshal", Kind: "func"}},
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	iter := c.SymbolsIter(context.Background(), "encoding/json", nil)
+
+	var symbols []Symbol
+	var firstErr error
+	for syms, err := range iter {
+		if err != nil {
+			firstErr = err
+			// 继续迭代来重试
+			continue
+		}
+		symbols = append(symbols, syms...)
+	}
+
+	if firstErr == nil {
+		t.Fatal("expected first error")
+	}
+	if len(symbols) != 1 {
+		t.Errorf("len(symbols) = %d, want 1", len(symbols))
+	}
+}
+
+func TestVersionsIter(t *testing.T) {
+	count := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if count == 1 {
+			json.NewEncoder(w).Encode(Page[Version]{
+				Items: []Version{{Version: "v1.0.0"}, {Version: "v0.9.0"}},
+				NextPageToken: "page2",
+			})
+		} else {
+			json.NewEncoder(w).Encode(Page[Version]{
+				Items: []Version{{Version: "v0.8.0"}},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	var allVersions []Version
+	for versions, err := range c.VersionsIter(context.Background(), "golang.org/x/text", nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		allVersions = append(allVersions, versions...)
+	}
+
+	if len(allVersions) != 3 {
+		t.Errorf("len(allVersions) = %d, want 3", len(allVersions))
+	}
+	if allVersions[0].Version != "v1.0.0" {
+		t.Errorf("first version = %q, want v1.0.0", allVersions[0].Version)
+	}
+}
+
+func TestPackagesIter(t *testing.T) {
+	count := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if count == 1 {
+			json.NewEncoder(w).Encode(Page[ModulePackage]{
+				Items: []ModulePackage{
+					{Path: "golang.org/x/text/language"},
+					{Path: "golang.org/x/text/encoding"},
+				},
+				NextPageToken: "page2",
+			})
+		} else {
+			json.NewEncoder(w).Encode(Page[ModulePackage]{
+				Items: []ModulePackage{
+					{Path: "golang.org/x/text/unicode"},
+				},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	var allPackages []ModulePackage
+	for packages, err := range c.PackagesIter(context.Background(), "golang.org/x/text", nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		allPackages = append(allPackages, packages...)
+	}
+
+	if len(allPackages) != 3 {
+		t.Errorf("len(allPackages) = %d, want 3", len(allPackages))
+	}
+}
+
+func TestSearchIter(t *testing.T) {
+	count := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if count == 1 {
+			json.NewEncoder(w).Encode(Page[SearchResult]{
+				Items: []SearchResult{
+					{PackagePath: "encoding/json", ModulePath: "std"},
+				},
+				NextPageToken: "page2",
+			})
+		} else {
+			json.NewEncoder(w).Encode(Page[SearchResult]{
+				Items: []SearchResult{
+					{PackagePath: "encoding/xml", ModulePath: "std"},
+				},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	var allResults []SearchResult
+	for results, err := range c.SearchIter(context.Background(), "json", nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		allResults = append(allResults, results...)
+	}
+
+	if len(allResults) != 2 {
+		t.Errorf("len(allResults) = %d, want 2", len(allResults))
+	}
+}
+
+func TestImportedByIter(t *testing.T) {
+	count := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if count == 1 {
+			json.NewEncoder(w).Encode(ImportedBy{
+				ModulePath: "std",
+				Version:    "go1.26.0",
+				ImportedBy: Page[string]{
+					Items: []string{"github.com/foo/bar", "github.com/baz/qux"},
+					NextPageToken: "page2",
+				},
+			})
+		} else {
+			json.NewEncoder(w).Encode(ImportedBy{
+				ModulePath: "std",
+				Version:    "go1.26.0",
+				ImportedBy: Page[string]{
+					Items: []string{"github.com/other/pkg"},
+				},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	var allPkgs []string
+	for pkgs, err := range c.ImportedByIter(context.Background(), "encoding/json", nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		allPkgs = append(allPkgs, pkgs...)
+	}
+
+	if len(allPkgs) != 3 {
+		t.Errorf("len(allPkgs) = %d, want 3", len(allPkgs))
+	}
+}
+
+func TestVulnsIter(t *testing.T) {
+	count := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count++
+		if count == 1 {
+			json.NewEncoder(w).Encode(Page[Vulnerability]{
+				Items: []Vulnerability{
+					{ID: "GO-2023-0001", Summary: "CVE-2023-0001"},
+				},
+				NextPageToken: "page2",
+			})
+		} else {
+			json.NewEncoder(w).Encode(Page[Vulnerability]{
+				Items: []Vulnerability{
+					{ID: "GO-2023-0002", Summary: "CVE-2023-0002"},
+				},
+			})
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	var allVulns []Vulnerability
+	for vulns, err := range c.VulnsIter(context.Background(), "golang.org/x/text", nil) {
+		if err != nil {
+			t.Fatal(err)
+		}
+		allVulns = append(allVulns, vulns...)
+	}
+
+	if len(allVulns) != 2 {
+		t.Errorf("len(allVulns) = %d, want 2", len(allVulns))
+	}
+}
+
 func TestImportedBy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(ImportedBy{
