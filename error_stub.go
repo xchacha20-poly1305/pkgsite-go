@@ -10,6 +10,9 @@ import (
 // It returns the code and true if the error is an APIError or HTTPError,
 // otherwise returns 0 and false.
 func HTTPErrorCode(err error) (code int, ok bool) {
+	if err == nil {
+		return 0, false
+	}
 	var apiError *APIError
 	if errors.As(err, &apiError) {
 		return apiError.Code, true
