@@ -13,7 +13,7 @@ func HTTPErrorCode(err error) (code int, ok bool) {
 	if err == nil {
 		return 0, false
 	}
-	var apiError *APIError
+	var apiError *Error
 	if errors.As(err, &apiError) {
 		return apiError.Code, true
 	}

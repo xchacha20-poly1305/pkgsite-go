@@ -1,4 +1,4 @@
-// Package pkgsite provides a client for the pkg.go.dev v1 API.
+// Package pkgsite provides a client for the pkg.go.dev v1beta API.
 package pkgsite
 
 import (
@@ -18,9 +18,10 @@ const (
 	// DefaultServer is the default pkgsite API server.
 	DefaultServer    = "https://pkg.go.dev"
 	DefaultUserAgent = "pkgsite-go"
+	apiVersion       = "v1beta"
 )
 
-// Client fetches data from the pkg.go.dev v1 API.
+// Client fetches data from the pkg.go.dev v1beta API.
 type Client struct {
 	server     string
 	httpClient *http.Client
@@ -72,12 +73,14 @@ func WithUserAgent(userAgent string) Option {
 	}
 }
 
-var _ error = (*APIError)(nil)
+var _ error = (*Error)(nil)
 
-// APIError is the error format returned by the v1 API.
-type APIError struct {
-	Code       int         `json:"code"`
-	Message    string      `json:"message"`
+// Error is the error format returned by the v1beta API.
+type Error struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	// Fixes is suggestions that tell you how to deal with this error.
+	Fixes      []string    `json:"fixes"`
 	Candidates []Candidate `json:"candidates,omitempty"`
 }
 
@@ -87,16 +90,37 @@ type Candidate struct {
 	PackagePath string `json:"packagePath"`
 }
 
-func (e *APIError) Error() string {
-	if len(e.Candidates) > 0 {
-		var b strings.Builder
-		fmt.Fprintf(&b, "%s; specify module:\n", e.Message)
-		for _, c := range e.Candidates {
-			fmt.Fprintf(&b, "  %s\n", c.ModulePath)
-		}
-		return b.String()
+func (e *Error) Error() string {
+	status := ""
+	if e.Code >= 100 {
+		status = fmt.Sprintf(" (HTTP %d)", e.Code)
 	}
-	return fmt.Sprintf("%s (HTTP %d)", e.Message, e.Code)
+	if len(e.Candidates) > 0 {
+		var builder strings.Builder
+		fmt.Fprintf(&builder, "%s%s; specify module path:\n", e.Message, status)
+		for _, candidate := range e.Candidates {
+			fmt.Fprintf(&builder, "  %s\n", candidate.ModulePath)
+		}
+		writeFixes(&builder, e.Fixes)
+		return builder.String()
+	}
+	if len(e.Fixes) > 0 {
+		var builder strings.Builder
+		fmt.Fprintf(&builder, "%s%s", e.Message, status)
+		writeFixes(&builder, e.Fixes)
+		return builder.String()
+	}
+	return fmt.Sprintf("%s%s", e.Message, status)
+}
+
+func writeFixes(builder *strings.Builder, fixes []string) {
+	if len(fixes) == 0 {
+		return
+	}
+	fmt.Fprint(builder, "\nTo fix:\n")
+	for _, fix := range fixes {
+		fmt.Fprintf(builder, "  - %s\n", fix)
+	}
 }
 
 var _ error = HTTPError(0)
@@ -108,12 +132,14 @@ func (h HTTPError) Error() string {
 	return fmt.Sprintf("%s (HTTP %d)", http.StatusText(int(h)), h)
 }
 
-// Package is the JSON response for /v1/package/.
+// Package is the JSON response for /v1beta/package/.
 type Package struct {
 	Path              string    `json:"path"`
+	Name              string    `json:"name"`
 	ModulePath        string    `json:"modulePath"`
-	ModuleVersion     string    `json:"moduleVersion"`
+	Version           string    `json:"version"`
 	Synopsis          string    `json:"synopsis"`
+	IsRedistributable bool      `json:"isRedistributable"`
 	IsStandardLibrary bool      `json:"isStandardLibrary"`
 	IsLatest          bool      `json:"isLatest"`
 	GOOS              string    `json:"goos"`
@@ -121,6 +147,22 @@ type Package struct {
 	Docs              string    `json:"docs,omitempty"`
 	Imports           []string  `json:"imports,omitempty"`
 	Licenses          []License `json:"licenses,omitempty"`
+}
+
+// PackageInfo is package metadata returned by package list endpoints.
+type PackageInfo struct {
+	Path              string `json:"path"`
+	Name              string `json:"name"`
+	Synopsis          string `json:"synopsis"`
+	IsRedistributable bool   `json:"isRedistributable"`
+}
+
+// PackagesResponse is the JSON response for /v1beta/packages/.
+type PackagesResponse struct {
+	ModulePath        string                         `json:"modulePath"`
+	Version           string                         `json:"version"`
+	IsStandardLibrary bool                           `json:"isStandardLibrary"`
+	Packages          PaginatedResponse[PackageInfo] `json:"packages"`
 }
 
 // License is license metadata returned by package and module endpoints.
@@ -144,16 +186,35 @@ type PackageOptions struct {
 	GOARCH   string
 	Limit    int
 	Token    string
+	// Filter is a regular expression used by list endpoints such as symbols and imported-by.
+	Filter string
 }
 
 func (o *PackageOptions) setToken(token string) {
 	o.Token = token
 }
 
-// Package fetches package metadata.
+// Package fetches package metadata for packagePath.
+//
+// packageOptions may specify a module path and version to disambiguate or pin
+// the package lookup. If Doc is set, the response includes rendered package
+// documentation in the requested format: "text", "md", "markdown", or "html".
+// Examples may be requested only when Doc is also set. Imports and Licenses
+// request the corresponding additional response fields.
+//
+// Package validates option combinations before sending the request. Invalid
+// local options return a regular error. Errors returned by the pkg.go.dev API
+// are returned as *Error when the response body contains the API error format,
+// or as HTTPError when only the HTTP status is available.
 func (c *Client) Package(ctx context.Context, packagePath string, packageOptions *PackageOptions) (*Package, error) {
 	q := make(url.Values)
 	if packageOptions != nil {
+		if packageOptions.Examples && packageOptions.Doc == "" {
+			return nil, fmt.Errorf("invalid package options: examples require doc format to be specified")
+		}
+		if packageOptions.Doc != "" && !validDocFormat(packageOptions.Doc) {
+			return nil, fmt.Errorf("invalid package options: bad doc format %q: need one of 'text', 'md', 'markdown' or 'html'", packageOptions.Doc)
+		}
 		addVersion(q, packageOptions.Version)
 		if packageOptions.Module != "" {
 			q.Set("module", packageOptions.Module)
@@ -167,7 +228,7 @@ func (c *Client) Package(ctx context.Context, packagePath string, packageOptions
 		addString(q, "goos", packageOptions.GOOS)
 		addString(q, "goarch", packageOptions.GOARCH)
 	}
-	u, err := c.endpoint("v1", "package", packagePath)
+	u, err := c.endpoint(apiVersion, "package", packagePath)
 	if err != nil {
 		return nil, err
 	}
@@ -180,25 +241,30 @@ func (c *Client) Package(ctx context.Context, packagePath string, packageOptions
 	return &resp, nil
 }
 
-// Page is a generic paginated response.
-type Page[T any] struct {
+// PaginatedResponse is a generic paginated response.
+type PaginatedResponse[T any] struct {
 	Items         []T    `json:"items"`
 	Total         int    `json:"total"`
 	NextPageToken string `json:"nextPageToken,omitempty"`
 }
 
-// Symbol is a single symbol from /v1/symbols/.
+// PackageSymbols is the JSON response for /v1beta/symbols/.
+type PackageSymbols struct {
+	ModulePath string                    `json:"modulePath"`
+	Version    string                    `json:"version"`
+	Symbols    PaginatedResponse[Symbol] `json:"symbols"`
+}
+
+// Symbol is a single symbol from /v1beta/symbols/.
 type Symbol struct {
-	ModulePath string `json:"modulePath"`
-	Version    string `json:"version"`
-	Name       string `json:"name"`
-	Kind       string `json:"kind"`
-	Synopsis   string `json:"synopsis"`
-	Parent     string `json:"parent,omitempty"`
+	Name     string `json:"name"`
+	Kind     string `json:"kind"`
+	Synopsis string `json:"synopsis"`
+	Parent   string `json:"parent,omitempty"`
 }
 
 // Symbols fetches exported symbols for a package.
-func (c *Client) Symbols(ctx context.Context, path string, opts *PackageOptions) (*Page[Symbol], error) {
+func (c *Client) Symbols(ctx context.Context, path string, opts *PackageOptions) (*PackageSymbols, error) {
 	q := make(url.Values)
 	if opts != nil {
 		addVersion(q, opts.Version)
@@ -207,67 +273,69 @@ func (c *Client) Symbols(ctx context.Context, path string, opts *PackageOptions)
 		addString(q, "goarch", opts.GOARCH)
 		addLimit(q, opts.Limit)
 		addString(q, "token", opts.Token)
-	} else {
-		addLimit(q, 0)
+		addString(q, "filter", opts.Filter)
 	}
-	u, err := c.endpoint("v1", "symbols", path)
+	u, err := c.endpoint(apiVersion, "symbols", path)
 	if err != nil {
 		return nil, err
 	}
 	u.RawQuery = q.Encode()
 
-	var resp Page[Symbol]
+	var resp PackageSymbols
 	if err := c.get(ctx, u.String(), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-// ImportedBy is the response for /v1/imported-by/.
-type ImportedBy struct {
-	ModulePath string       `json:"modulePath"`
-	Version    string       `json:"version"`
-	ImportedBy Page[string] `json:"importedBy"`
+// PackageImportedBy is the response for /v1beta/imported-by/.
+type PackageImportedBy struct {
+	ModulePath string                    `json:"modulePath"`
+	Version    string                    `json:"version"`
+	ImportedBy PaginatedResponse[string] `json:"importedBy"`
 }
 
 // ImportedBy fetches packages that import path.
-func (c *Client) ImportedBy(ctx context.Context, path string, opts *PackageOptions) (*ImportedBy, error) {
+func (c *Client) ImportedBy(ctx context.Context, path string, opts *PackageOptions) (*PackageImportedBy, error) {
 	q := make(url.Values)
 	if opts != nil {
 		addVersion(q, opts.Version)
 		addString(q, "module", opts.Module)
 		addLimit(q, opts.Limit)
 		addString(q, "token", opts.Token)
-	} else {
-		addLimit(q, 0)
+		addString(q, "filter", opts.Filter)
 	}
-	u, err := c.endpoint("v1", "imported-by", path)
+	u, err := c.endpoint(apiVersion, "imported-by", path)
 	if err != nil {
 		return nil, err
 	}
 	u.RawQuery = q.Encode()
 
-	var resp ImportedBy
+	var resp PackageImportedBy
 	if err := c.get(ctx, u.String(), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-// Module is the JSON response for /v1/module/.
+// Module is the JSON response for /v1beta/module/.
 type Module struct {
-	Path              string    `json:"path"`
-	Version           string    `json:"version"`
+	Path    string `json:"path"`
+	Version string `json:"version"`
+	// CommitTime is the timestamp returned by the module proxy's .info endpoint,
+	// representing the time the version was created.
+	CommitTime        time.Time `json:"commitTime"`
 	IsLatest          bool      `json:"isLatest"`
 	IsRedistributable bool      `json:"isRedistributable"`
 	IsStandardLibrary bool      `json:"isStandardLibrary"`
 	HasGoMod          bool      `json:"hasGoMod"`
 	RepoURL           string    `json:"repoUrl"`
+	GoModContents     string    `json:"goModContents,omitempty"`
 	Readme            *Readme   `json:"readme,omitempty"`
 	Licenses          []License `json:"licenses,omitempty"`
 }
 
-// Readme is README content returned by /v1/module/.
+// Readme is README content returned by /v1beta/module/.
 type Readme struct {
 	Filepath string `json:"filepath"`
 	Contents string `json:"contents"`
@@ -278,10 +346,13 @@ var _ queryOptions = (*ModuleOptions)(nil)
 // ModuleOptions configures module-related requests.
 type ModuleOptions struct {
 	Version  string
+	Module   string
 	Readme   bool
 	Licenses bool
 	Limit    int
 	Token    string
+	// Filter is a regular expression used by list endpoints.
+	Filter string
 }
 
 func (o *ModuleOptions) setToken(token string) {
@@ -296,7 +367,7 @@ func (c *Client) Module(ctx context.Context, path string, opts *ModuleOptions) (
 		addBool(q, "readme", opts.Readme)
 		addBool(q, "licenses", opts.Licenses)
 	}
-	u, err := c.endpoint("v1", "module", path)
+	u, err := c.endpoint(apiVersion, "module", path)
 	if err != nil {
 		return nil, err
 	}
@@ -309,34 +380,42 @@ func (c *Client) Module(ctx context.Context, path string, opts *ModuleOptions) (
 	return &resp, nil
 }
 
-// Version is a single version from /v1/versions/.
-type Version struct {
-	Version string `json:"version"`
+// ModuleVersion is a single version from /v1beta/versions/.
+type ModuleVersion struct {
+	ModulePath        string    `json:"modulePath"`
+	Version           string    `json:"version"`
+	CommitTime        time.Time `json:"commitTime"`
+	IsRedistributable bool      `json:"isRedistributable"`
+	HasGoMod          bool      `json:"hasGoMod"`
+	LatestVersion     string    `json:"latestVersion"`
+	Deprecated        bool      `json:"deprecated"`
+	DeprecationReason string    `json:"deprecationReason"`
+	Retracted         bool      `json:"retracted"`
+	RetractionReason  string    `json:"retractionReason"`
 }
 
 // Versions fetches module versions.
-func (c *Client) Versions(ctx context.Context, path string, opts *ModuleOptions) (*Page[Version], error) {
+func (c *Client) Versions(ctx context.Context, path string, opts *ModuleOptions) (*PaginatedResponse[ModuleVersion], error) {
 	q := make(url.Values)
 	if opts != nil {
 		addLimit(q, opts.Limit)
 		addString(q, "token", opts.Token)
-	} else {
-		addLimit(q, 0)
+		addString(q, "filter", opts.Filter)
 	}
-	u, err := c.endpoint("v1", "versions", path)
+	u, err := c.endpoint(apiVersion, "versions", path)
 	if err != nil {
 		return nil, err
 	}
 	u.RawQuery = q.Encode()
 
-	var resp Page[Version]
+	var resp PaginatedResponse[ModuleVersion]
 	if err := c.get(ctx, u.String(), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-// Vulnerability is a single vulnerability from /v1/vulns/.
+// Vulnerability is a single vulnerability from /v1beta/vulns/.
 type Vulnerability struct {
 	ID           string `json:"id"`
 	Summary      string `json:"summary"`
@@ -344,59 +423,52 @@ type Vulnerability struct {
 	FixedVersion string `json:"fixedVersion"`
 }
 
-// Vulns fetches module vulnerabilities.
-func (c *Client) Vulns(ctx context.Context, path string, opts *ModuleOptions) (*Page[Vulnerability], error) {
+// Vulnerability fetches module vulnerabilities.
+func (c *Client) Vulnerability(ctx context.Context, path string, opts *ModuleOptions) (*PaginatedResponse[Vulnerability], error) {
 	q := make(url.Values)
 	if opts != nil {
 		addVersion(q, opts.Version)
+		addString(q, "module", opts.Module)
 		addLimit(q, opts.Limit)
 		addString(q, "token", opts.Token)
-	} else {
-		addLimit(q, 0)
+		addString(q, "filter", opts.Filter)
 	}
-	u, err := c.endpoint("v1", "vulns", path)
+	u, err := c.endpoint(apiVersion, "vulns", path)
 	if err != nil {
 		return nil, err
 	}
 	u.RawQuery = q.Encode()
 
-	var resp Page[Vulnerability]
+	var resp PaginatedResponse[Vulnerability]
 	if err := c.get(ctx, u.String(), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
-}
-
-// ModulePackage is a single package from /v1/packages/.
-type ModulePackage struct {
-	Path     string `json:"path"`
-	Synopsis string `json:"synopsis"`
 }
 
 // Packages fetches packages in a module.
-func (c *Client) Packages(ctx context.Context, modulePath string, opts *ModuleOptions) (*Page[ModulePackage], error) {
+func (c *Client) Packages(ctx context.Context, modulePath string, opts *ModuleOptions) (*PackagesResponse, error) {
 	q := make(url.Values)
 	if opts != nil {
 		addVersion(q, opts.Version)
 		addLimit(q, opts.Limit)
 		addString(q, "token", opts.Token)
-	} else {
-		addLimit(q, 0)
+		addString(q, "filter", opts.Filter)
 	}
-	u, err := c.endpoint("v1", "packages", modulePath)
+	u, err := c.endpoint(apiVersion, "packages", modulePath)
 	if err != nil {
 		return nil, err
 	}
 	u.RawQuery = q.Encode()
 
-	var resp Page[ModulePackage]
+	var resp PackagesResponse
 	if err := c.get(ctx, u.String(), &resp); err != nil {
 		return nil, err
 	}
 	return &resp, nil
 }
 
-// SearchResult is a single search result from /v1/search/.
+// SearchResult is a single search result from /v1beta/search/.
 type SearchResult struct {
 	PackagePath string `json:"packagePath"`
 	ModulePath  string `json:"modulePath"`
@@ -411,6 +483,8 @@ type SearchOptions struct {
 	Symbol string
 	Limit  int
 	Token  string
+	// Filter is a regular expression matched against package paths and synopses.
+	Filter string
 }
 
 func (o *SearchOptions) setToken(token string) {
@@ -418,23 +492,22 @@ func (o *SearchOptions) setToken(token string) {
 }
 
 // Search searches packages.
-func (c *Client) Search(ctx context.Context, query string, opts *SearchOptions) (*Page[SearchResult], error) {
+func (c *Client) Search(ctx context.Context, query string, opts *SearchOptions) (*PaginatedResponse[SearchResult], error) {
 	q := make(url.Values)
 	q.Set("q", query)
 	if opts != nil {
 		addString(q, "symbol", opts.Symbol)
 		addLimit(q, opts.Limit)
 		addString(q, "token", opts.Token)
-	} else {
-		addLimit(q, 0)
+		addString(q, "filter", opts.Filter)
 	}
-	u, err := c.endpoint("v1", "search")
+	u, err := c.endpoint(apiVersion, "search")
 	if err != nil {
 		return nil, err
 	}
 	u.RawQuery = q.Encode()
 
-	var resp Page[SearchResult]
+	var resp PaginatedResponse[SearchResult]
 	if err := c.get(ctx, u.String(), &resp); err != nil {
 		return nil, err
 	}
@@ -462,7 +535,7 @@ func (c *Client) get(ctx context.Context, rawURL string, dst any) error {
 		if err != nil {
 			return HTTPError(resp.StatusCode)
 		}
-		var apiErr APIError
+		var apiErr Error
 		if json.Unmarshal(body, &apiErr) == nil && apiErr.Message != "" {
 			if apiErr.Code == 0 {
 				apiErr.Code = resp.StatusCode
@@ -503,10 +576,18 @@ func addBool(q url.Values, key string, value bool) {
 }
 
 func addLimit(q url.Values, limit int) {
-	if limit <= 0 {
-		limit = 100
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
 	}
-	q.Set("limit", strconv.Itoa(limit))
+}
+
+func validDocFormat(format string) bool {
+	switch format {
+	case "text", "md", "markdown", "html":
+		return true
+	default:
+		return false
+	}
 }
 
 type queryOptions interface {
@@ -552,7 +633,7 @@ func (c *Client) SymbolsIter(ctx context.Context, path string, options *PackageO
 			if err != nil {
 				return nil, "", err
 			}
-			return page.Items, page.NextPageToken, nil
+			return page.Symbols.Items, page.Symbols.NextPageToken, nil
 		},
 	)
 }
@@ -579,13 +660,13 @@ func (c *Client) ImportedByIter(ctx context.Context, path string, options *Packa
 // VersionsIter returns an iterator for paginating through module versions.
 // The iterator yields pages of versions. If Next returns an error, the next call
 // to Next will retry the same page.
-func (c *Client) VersionsIter(ctx context.Context, path string, options *ModuleOptions) iter.Seq2[[]Version, error] {
+func (c *Client) VersionsIter(ctx context.Context, path string, options *ModuleOptions) iter.Seq2[[]ModuleVersion, error] {
 	optionsCopy := ModuleOptions{}
 	if options != nil {
 		optionsCopy = *options
 	}
 	return paginateSeq(ctx, &optionsCopy,
-		func(ctx context.Context, currentOptions *ModuleOptions) ([]Version, string, error) {
+		func(ctx context.Context, currentOptions *ModuleOptions) ([]ModuleVersion, string, error) {
 			page, err := c.Versions(ctx, path, currentOptions)
 			if err != nil {
 				return nil, "", err
@@ -605,7 +686,7 @@ func (c *Client) VulnsIter(ctx context.Context, path string, options *ModuleOpti
 	}
 	return paginateSeq(ctx, &optionsCopy,
 		func(ctx context.Context, currentOptions *ModuleOptions) ([]Vulnerability, string, error) {
-			page, err := c.Vulns(ctx, path, currentOptions)
+			page, err := c.Vulnerability(ctx, path, currentOptions)
 			if err != nil {
 				return nil, "", err
 			}
@@ -617,18 +698,18 @@ func (c *Client) VulnsIter(ctx context.Context, path string, options *ModuleOpti
 // PackagesIter returns an iterator for paginating through packages in a module.
 // The iterator yields pages of packages. If Next returns an error, the next call
 // to Next will retry the same page.
-func (c *Client) PackagesIter(ctx context.Context, modulePath string, options *ModuleOptions) iter.Seq2[[]ModulePackage, error] {
+func (c *Client) PackagesIter(ctx context.Context, modulePath string, options *ModuleOptions) iter.Seq2[[]PackageInfo, error] {
 	optionsCopy := ModuleOptions{}
 	if options != nil {
 		optionsCopy = *options
 	}
 	return paginateSeq(ctx, &optionsCopy,
-		func(ctx context.Context, currentOptions *ModuleOptions) ([]ModulePackage, string, error) {
+		func(ctx context.Context, currentOptions *ModuleOptions) ([]PackageInfo, string, error) {
 			page, err := c.Packages(ctx, modulePath, currentOptions)
 			if err != nil {
 				return nil, "", err
 			}
-			return page.Items, page.NextPageToken, nil
+			return page.Packages.Items, page.Packages.NextPageToken, nil
 		},
 	)
 }

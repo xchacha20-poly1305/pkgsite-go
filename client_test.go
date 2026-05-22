@@ -12,16 +12,17 @@ import (
 
 func TestPackage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/package/encoding/json" {
-			t.Errorf("path = %q, want /v1/package/encoding/json", r.URL.Path)
+		if r.URL.Path != "/v1beta/package/encoding/json" {
+			t.Errorf("path = %q, want /v1beta/package/encoding/json", r.URL.Path)
 		}
 		if got := r.URL.Query().Get("version"); got != "go1.26.0" {
 			t.Errorf("version = %q, want go1.26.0", got)
 		}
 		json.NewEncoder(w).Encode(Package{
 			Path:              "encoding/json",
+			Name:              "json",
 			ModulePath:        "std",
-			ModuleVersion:     "go1.26.0",
+			Version:           "go1.26.0",
 			Synopsis:          "Package json implements encoding and decoding of JSON.",
 			IsStandardLibrary: true,
 		})
@@ -80,10 +81,40 @@ func TestPackageOptions(t *testing.T) {
 	}
 }
 
+func TestPackageExamplesRequiresDoc(t *testing.T) {
+	c := NewClient()
+	_, err := c.Package(context.Background(), "encoding/json", &PackageOptions{Examples: true})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var apiErr *Error
+	if errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want not *Error", err)
+	}
+	if got, want := err.Error(), "invalid package options: examples require doc format to be specified"; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
+func TestPackageInvalidDocFormat(t *testing.T) {
+	c := NewClient()
+	_, err := c.Package(context.Background(), "encoding/json", &PackageOptions{Doc: "json"})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var apiErr *Error
+	if errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want not *Error", err)
+	}
+	if got, want := err.Error(), "invalid package options: bad doc format \"json\": need one of 'text', 'md', 'markdown' or 'html'"; got != want {
+		t.Errorf("Error() = %q, want %q", got, want)
+	}
+}
+
 func TestModule(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/module/golang.org/x/text" {
-			t.Errorf("path = %q, want /v1/module/golang.org/x/text", r.URL.Path)
+		if r.URL.Path != "/v1beta/module/golang.org/x/text" {
+			t.Errorf("path = %q, want /v1beta/module/golang.org/x/text", r.URL.Path)
 		}
 		checkQuery(t, r.URL.Query().Get("version"), "v0.14.0", "version")
 		checkQuery(t, r.URL.Query().Get("readme"), "true", "readme")
@@ -112,8 +143,8 @@ func TestModule(t *testing.T) {
 }
 
 func TestVersions(t *testing.T) {
-	srv := pageServer(t, "/v1/versions/golang.org/x/text", "2", Page[Version]{
-		Items: []Version{{Version: "v0.14.0"}, {Version: "v0.13.0"}},
+	srv := pageServer(t, "/v1beta/versions/golang.org/x/text", "2", PaginatedResponse[ModuleVersion]{
+		Items: []ModuleVersion{{Version: "v0.14.0"}, {Version: "v0.13.0"}},
 		Total: 2,
 	})
 	defer srv.Close()
@@ -129,14 +160,14 @@ func TestVersions(t *testing.T) {
 }
 
 func TestVulns(t *testing.T) {
-	srv := pageServer(t, "/v1/vulns/golang.org/x/text", "100", Page[Vulnerability]{
+	srv := pageServer(t, "/v1beta/vulns/golang.org/x/text", "", PaginatedResponse[Vulnerability]{
 		Items: []Vulnerability{{ID: "GO-2023-0001", Details: "A vulnerability."}},
 		Total: 1,
 	})
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Vulns(context.Background(), "golang.org/x/text", &ModuleOptions{Version: "v0.3.0"})
+	resp, err := c.Vulnerability(context.Background(), "golang.org/x/text", &ModuleOptions{Version: "v0.3.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,11 +180,21 @@ func TestVulns(t *testing.T) {
 }
 
 func TestPackages(t *testing.T) {
-	srv := pageServer(t, "/v1/packages/golang.org/x/text", "100", Page[ModulePackage]{
-		Items: []ModulePackage{
-			{Path: "golang.org/x/text/language", Synopsis: "Package language implements BCP 47 language tags."},
+	srv := pageServer(t, "/v1beta/packages/golang.org/x/text", "", PackagesResponse{
+		ModulePath:        "golang.org/x/text",
+		Version:           "v0.14.0",
+		IsStandardLibrary: false,
+		Packages: PaginatedResponse[PackageInfo]{
+			Items: []PackageInfo{
+				{
+					Path:              "golang.org/x/text/language",
+					Name:              "language",
+					Synopsis:          "Package language implements BCP 47 language tags.",
+					IsRedistributable: true,
+				},
+			},
+			Total: 1,
 		},
-		Total: 1,
 	})
 	defer srv.Close()
 
@@ -162,17 +203,24 @@ func TestPackages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Items[0].Path != "golang.org/x/text/language" {
-		t.Errorf("Path = %q, want golang.org/x/text/language", resp.Items[0].Path)
+	if resp.ModulePath != "golang.org/x/text" {
+		t.Errorf("ModulePath = %q, want golang.org/x/text", resp.ModulePath)
+	}
+	if resp.Packages.Items[0].Path != "golang.org/x/text/language" {
+		t.Errorf("Path = %q, want golang.org/x/text/language", resp.Packages.Items[0].Path)
+	}
+	if !resp.Packages.Items[0].IsRedistributable {
+		t.Error("IsRedistributable = false, want true")
 	}
 }
 
 func TestSearch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		checkQuery(t, r.URL.Path, "/v1/search", "path")
+		checkQuery(t, r.URL.Path, "/v1beta/search", "path")
 		checkQuery(t, r.URL.Query().Get("q"), "json parser", "q")
 		checkQuery(t, r.URL.Query().Get("symbol"), "Marshal", "symbol")
-		json.NewEncoder(w).Encode(Page[SearchResult]{
+		checkQuery(t, r.URL.Query().Get("filter"), "^encoding/", "filter")
+		json.NewEncoder(w).Encode(PaginatedResponse[SearchResult]{
 			Items: []SearchResult{{
 				PackagePath: "encoding/json",
 				ModulePath:  "std",
@@ -185,7 +233,7 @@ func TestSearch(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Search(context.Background(), "json parser", &SearchOptions{Symbol: "Marshal"})
+	resp, err := c.Search(context.Background(), "json parser", &SearchOptions{Symbol: "Marshal", Filter: "^encoding/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,13 +243,17 @@ func TestSearch(t *testing.T) {
 }
 
 func TestSymbols(t *testing.T) {
-	srv := pageServer(t, "/v1/symbols/encoding/json", "100", Page[Symbol]{
-		Items: []Symbol{{
-			Name:     "Marshal",
-			Kind:     "func",
-			Synopsis: "func Marshal(v any) ([]byte, error)",
-		}},
-		Total: 1,
+	srv := pageServer(t, "/v1beta/symbols/encoding/json", "", PackageSymbols{
+		ModulePath: "std",
+		Version:    "go1.26.0",
+		Symbols: PaginatedResponse[Symbol]{
+			Items: []Symbol{{
+				Name:     "Marshal",
+				Kind:     "func",
+				Synopsis: "func Marshal(v any) ([]byte, error)",
+			}},
+			Total: 1,
+		},
 	})
 	defer srv.Close()
 
@@ -210,8 +262,11 @@ func TestSymbols(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp.Items[0].Name != "Marshal" {
-		t.Errorf("Name = %q, want Marshal", resp.Items[0].Name)
+	if resp.ModulePath != "std" {
+		t.Errorf("ModulePath = %q, want std", resp.ModulePath)
+	}
+	if resp.Symbols.Items[0].Name != "Marshal" {
+		t.Errorf("Name = %q, want Marshal", resp.Symbols.Items[0].Name)
 	}
 }
 
@@ -220,17 +275,25 @@ func TestSymbolsIter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count++
 		if count == 1 {
-			json.NewEncoder(w).Encode(Page[Symbol]{
-				Items: []Symbol{
-					{Name: "Marshal", Kind: "func"},
-					{Name: "Unmarshal", Kind: "func"},
+			json.NewEncoder(w).Encode(PackageSymbols{
+				ModulePath: "std",
+				Version:    "go1.26.0",
+				Symbols: PaginatedResponse[Symbol]{
+					Items: []Symbol{
+						{Name: "Marshal", Kind: "func"},
+						{Name: "Unmarshal", Kind: "func"},
+					},
+					NextPageToken: "page2",
 				},
-				NextPageToken: "page2",
 			})
 		} else if count == 2 {
-			json.NewEncoder(w).Encode(Page[Symbol]{
-				Items: []Symbol{
-					{Name: "MarshalIndent", Kind: "func"},
+			json.NewEncoder(w).Encode(PackageSymbols{
+				ModulePath: "std",
+				Version:    "go1.26.0",
+				Symbols: PaginatedResponse[Symbol]{
+					Items: []Symbol{
+						{Name: "MarshalIndent", Kind: "func"},
+					},
 				},
 			})
 		}
@@ -265,8 +328,10 @@ func TestSymbolsIterWithRetry(t *testing.T) {
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
-		json.NewEncoder(w).Encode(Page[Symbol]{
-			Items: []Symbol{{Name: "Marshal", Kind: "func"}},
+		json.NewEncoder(w).Encode(PackageSymbols{
+			Symbols: PaginatedResponse[Symbol]{
+				Items: []Symbol{{Name: "Marshal", Kind: "func"}},
+			},
 		})
 	}))
 	defer srv.Close()
@@ -298,20 +363,20 @@ func TestVersionsIter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count++
 		if count == 1 {
-			json.NewEncoder(w).Encode(Page[Version]{
-				Items: []Version{{Version: "v1.0.0"}, {Version: "v0.9.0"}},
+			json.NewEncoder(w).Encode(PaginatedResponse[ModuleVersion]{
+				Items:         []ModuleVersion{{Version: "v1.0.0"}, {Version: "v0.9.0"}},
 				NextPageToken: "page2",
 			})
 		} else {
-			json.NewEncoder(w).Encode(Page[Version]{
-				Items: []Version{{Version: "v0.8.0"}},
+			json.NewEncoder(w).Encode(PaginatedResponse[ModuleVersion]{
+				Items: []ModuleVersion{{Version: "v0.8.0"}},
 			})
 		}
 	}))
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	var allVersions []Version
+	var allVersions []ModuleVersion
 	for versions, err := range c.VersionsIter(context.Background(), "golang.org/x/text", nil) {
 		if err != nil {
 			t.Fatal(err)
@@ -332,17 +397,25 @@ func TestPackagesIter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count++
 		if count == 1 {
-			json.NewEncoder(w).Encode(Page[ModulePackage]{
-				Items: []ModulePackage{
-					{Path: "golang.org/x/text/language"},
-					{Path: "golang.org/x/text/encoding"},
+			json.NewEncoder(w).Encode(PackagesResponse{
+				ModulePath: "golang.org/x/text",
+				Version:    "v0.14.0",
+				Packages: PaginatedResponse[PackageInfo]{
+					Items: []PackageInfo{
+						{Path: "golang.org/x/text/language"},
+						{Path: "golang.org/x/text/encoding"},
+					},
+					NextPageToken: "page2",
 				},
-				NextPageToken: "page2",
 			})
 		} else {
-			json.NewEncoder(w).Encode(Page[ModulePackage]{
-				Items: []ModulePackage{
-					{Path: "golang.org/x/text/unicode"},
+			json.NewEncoder(w).Encode(PackagesResponse{
+				ModulePath: "golang.org/x/text",
+				Version:    "v0.14.0",
+				Packages: PaginatedResponse[PackageInfo]{
+					Items: []PackageInfo{
+						{Path: "golang.org/x/text/unicode"},
+					},
 				},
 			})
 		}
@@ -350,7 +423,7 @@ func TestPackagesIter(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	var allPackages []ModulePackage
+	var allPackages []PackageInfo
 	for packages, err := range c.PackagesIter(context.Background(), "golang.org/x/text", nil) {
 		if err != nil {
 			t.Fatal(err)
@@ -368,14 +441,14 @@ func TestSearchIter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count++
 		if count == 1 {
-			json.NewEncoder(w).Encode(Page[SearchResult]{
+			json.NewEncoder(w).Encode(PaginatedResponse[SearchResult]{
 				Items: []SearchResult{
 					{PackagePath: "encoding/json", ModulePath: "std"},
 				},
 				NextPageToken: "page2",
 			})
 		} else {
-			json.NewEncoder(w).Encode(Page[SearchResult]{
+			json.NewEncoder(w).Encode(PaginatedResponse[SearchResult]{
 				Items: []SearchResult{
 					{PackagePath: "encoding/xml", ModulePath: "std"},
 				},
@@ -403,19 +476,19 @@ func TestImportedByIter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count++
 		if count == 1 {
-			json.NewEncoder(w).Encode(ImportedBy{
+			json.NewEncoder(w).Encode(PackageImportedBy{
 				ModulePath: "std",
 				Version:    "go1.26.0",
-				ImportedBy: Page[string]{
-					Items: []string{"github.com/foo/bar", "github.com/baz/qux"},
+				ImportedBy: PaginatedResponse[string]{
+					Items:         []string{"github.com/foo/bar", "github.com/baz/qux"},
 					NextPageToken: "page2",
 				},
 			})
 		} else {
-			json.NewEncoder(w).Encode(ImportedBy{
+			json.NewEncoder(w).Encode(PackageImportedBy{
 				ModulePath: "std",
 				Version:    "go1.26.0",
-				ImportedBy: Page[string]{
+				ImportedBy: PaginatedResponse[string]{
 					Items: []string{"github.com/other/pkg"},
 				},
 			})
@@ -442,14 +515,14 @@ func TestVulnsIter(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count++
 		if count == 1 {
-			json.NewEncoder(w).Encode(Page[Vulnerability]{
+			json.NewEncoder(w).Encode(PaginatedResponse[Vulnerability]{
 				Items: []Vulnerability{
 					{ID: "GO-2023-0001", Summary: "CVE-2023-0001"},
 				},
 				NextPageToken: "page2",
 			})
 		} else {
-			json.NewEncoder(w).Encode(Page[Vulnerability]{
+			json.NewEncoder(w).Encode(PaginatedResponse[Vulnerability]{
 				Items: []Vulnerability{
 					{ID: "GO-2023-0002", Summary: "CVE-2023-0002"},
 				},
@@ -474,10 +547,11 @@ func TestVulnsIter(t *testing.T) {
 
 func TestImportedBy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(ImportedBy{
+		checkQuery(t, r.URL.Query().Get("filter"), "^github.com/", "filter")
+		json.NewEncoder(w).Encode(PackageImportedBy{
 			ModulePath: "std",
 			Version:    "go1.26.0",
-			ImportedBy: Page[string]{
+			ImportedBy: PaginatedResponse[string]{
 				Items: []string{"github.com/foo/bar", "github.com/baz/qux"},
 				Total: 2,
 			},
@@ -486,7 +560,7 @@ func TestImportedBy(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.ImportedBy(context.Background(), "encoding/json", nil)
+	resp, err := c.ImportedBy(context.Background(), "encoding/json", &PackageOptions{Filter: "^github.com/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,8 +572,8 @@ func TestImportedBy(t *testing.T) {
 func TestAmbiguousPackagePath(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(APIError{
-			Code:    400,
+		json.NewEncoder(w).Encode(Error{
+			Code:    http.StatusBadRequest,
 			Message: "ambiguous package path",
 			Candidates: []Candidate{
 				{ModulePath: "github.com/foo/bar", PackagePath: "github.com/foo/bar/pkg"},
@@ -526,7 +600,11 @@ func TestAmbiguousPackagePath(t *testing.T) {
 func TestAPIError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(APIError{Code: 404, Message: "not found"})
+		json.NewEncoder(w).Encode(Error{
+			Code:    http.StatusNotFound,
+			Message: "not found",
+			Fixes:   []string{"check the module or package path"},
+		})
 	}))
 	defer srv.Close()
 
@@ -535,12 +613,15 @@ func TestAPIError(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	var apiErr *APIError
+	var apiErr *Error
 	if !errors.As(err, &apiErr) {
 		t.Fatalf("error type = %T, want *APIError", err)
 	}
-	if apiErr.Code != 404 {
+	if apiErr.Code != http.StatusNotFound {
 		t.Errorf("Code = %d, want 404", apiErr.Code)
+	}
+	if len(apiErr.Fixes) != 1 {
+		t.Errorf("len(Fixes) = %d, want 1", len(apiErr.Fixes))
 	}
 }
 
@@ -588,7 +669,7 @@ func TestHTTPErrorWithInvalidJSONBody(t *testing.T) {
 	}
 }
 
-func pageServer[T any](t *testing.T, path, limit string, resp Page[T]) *httptest.Server {
+func pageServer(t *testing.T, path, limit string, resp any) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != path {

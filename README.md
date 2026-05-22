@@ -2,11 +2,11 @@
 
 [![Go Reference](https://pkg.go.dev/badge/codeberg.org/xchacha20-poly1305/pkgsite-go.svg)](https://pkg.go.dev/codeberg.org/xchacha20-poly1305/pkgsite-go)
 
-Client API implementation of pkg.go.dev.
+Client API implementation of the pkg.go.dev v1beta API.
 
 # LLM generation declaration
 
-The basic code is modified from [pkgsite's cli implementation](https://github.com/golang/pkgsite/blob/29d1d011fd64b0d9fc5f65b94b6645ee3052aea8/cmd/internal/pkgsite-cli/) by OpenAI Codex with GPT-5.5.
+The basic code is modified from [pkgsite's cli implementation](https://github.com/golang/pkgsite/blob/2641079310745c8d3d912491d2342c7fb558b449/cmd/internal/pkgsite-cli/) by OpenAI Codex with GPT-5.5.
 
 # License
 
