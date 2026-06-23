@@ -186,7 +186,15 @@ type PackageOptions struct {
 	GOARCH   string
 	Limit    int
 	Token    string
-	// Filter is a regular expression used by list endpoints such as symbols and imported-by.
+	// Filter is a boolean Go expression used by list endpoints such as symbols
+	// and imported-by to filter the items in the response. Only items for which
+	// the expression evaluates to true are returned.
+	//
+	// The available variables are the JSON field names of the items being
+	// filtered: for symbols, "name", "kind", "synopsis" and "parent"; for
+	// imported-by, the import path is bound to "path". Built-in functions are
+	// contains, matches (regexp), hasPrefix and hasSuffix. For example:
+	// `contains(name, "Reader")` or `matches(path, "^golang.org/x/")`.
 	Filter string
 }
 
@@ -351,7 +359,15 @@ type ModuleOptions struct {
 	Licenses bool
 	Limit    int
 	Token    string
-	// Filter is a regular expression used by list endpoints.
+	// Filter is a boolean Go expression used by list endpoints (versions,
+	// vulns and packages) to filter the items in the response. Only items for
+	// which the expression evaluates to true are returned.
+	//
+	// The available variables are the JSON field names of the items being
+	// filtered, such as "path", "name" and "synopsis" for packages, the
+	// ModuleVersion fields for versions, or "id", "summary" and "details" for
+	// vulns. Built-in functions are contains, matches (regexp), hasPrefix and
+	// hasSuffix. For example: `hasPrefix(path, "internal/")`.
 	Filter string
 }
 
@@ -483,7 +499,13 @@ type SearchOptions struct {
 	Symbol string
 	Limit  int
 	Token  string
-	// Filter is a regular expression matched against package paths and synopses.
+	// Filter is a boolean Go expression used to filter the search results. Only
+	// results for which the expression evaluates to true are returned.
+	//
+	// The available variables are the JSON field names of SearchResult:
+	// "packagePath", "modulePath", "version" and "synopsis". Built-in functions
+	// are contains, matches (regexp), hasPrefix and hasSuffix. For example:
+	// `contains(synopsis, "logging")`.
 	Filter string
 }
 

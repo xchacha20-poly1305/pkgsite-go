@@ -6,7 +6,7 @@ Client API implementation of the pkg.go.dev v1beta API.
 
 # LLM generation declaration
 
-The basic code is modified from [pkgsite's cli implementation](https://github.com/golang/pkgsite/blob/2641079310745c8d3d912491d2342c7fb558b449/cmd/internal/pkgsite-cli/) by OpenAI Codex with GPT-5.5.
+The basic code is modified from [pkgsite's cli implementation](https://github.com/golang/pkgsite/blob/8ceeb63dd0a43d712d25f0a4ab2bcd3461f87577/cmd/internal/pkgsite-cli/).
 
 # License
 
