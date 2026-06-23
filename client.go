@@ -514,10 +514,53 @@ func (c *Client) Search(ctx context.Context, query string, opts *SearchOptions) 
 	return &resp, nil
 }
 
-func (c *Client) get(ctx context.Context, rawURL string, dst any) error {
-	if ctx == nil {
-		ctx = context.Background()
+// FetchModule requests that pkg.go.dev fetch and index path, triggering the same
+// action as the "Request" button shown for an unknown path on the site.
+// path may optionally end in "@version" (e.g. "example.com/mod@v1.0.0") to
+// request a specific version; otherwise the latest version is fetched.
+//
+// Unlike the rest of Client's methods, FetchModule does not use the v1beta API: it
+// posts to the /fetch/ endpoint, which is not version-prefixed. The call
+// blocks until pkg.go.dev confirms path has been indexed, or returns an
+// error if the fetch failed or the request timed out.
+func (c *Client) FetchModule(ctx context.Context, path string) error {
+	u, err := c.endpoint("fetch", path)
+	if err != nil {
+		return err
 	}
+	return c.post(ctx, u.String())
+}
+
+// post now only for FetchModule
+func (c *Client) post(ctx context.Context, rawURL string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, rawURL, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Set("User-Agent", c.userAgent)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+		if err != nil {
+			return HTTPError(resp.StatusCode)
+		}
+		// The /fetch/ endpoint reports failures as a plain text (sometimes
+		// HTML) body rather than the JSON format used by the v1beta API.
+		if message := strings.TrimSpace(string(body)); message != "" {
+			return &Error{Code: resp.StatusCode, Message: message}
+		}
+		return HTTPError(resp.StatusCode)
+	}
+	return nil
+}
+
+func (c *Client) get(ctx context.Context, rawURL string, dst any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return err

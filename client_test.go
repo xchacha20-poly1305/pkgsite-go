@@ -669,6 +669,80 @@ func TestHTTPErrorWithInvalidJSONBody(t *testing.T) {
 	}
 }
 
+func TestFetch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		if r.URL.Path != "/fetch/path/to/module" {
+			t.Errorf("path = %q, want /fetch/path/to/module", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	if err := c.FetchModule(context.Background(), "path/to/module"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFetchWithVersion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/fetch/path/to/module@v1.0.0" {
+			t.Errorf("path = %q, want /fetch/path/to/module@v1.0.0", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	if err := c.FetchModule(context.Background(), "path/to/module@v1.0.0"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFetchError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `"path/to/module" could not be found.`, http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	err := c.FetchModule(context.Background(), "path/to/module")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var apiErr *Error
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("error type = %T, want *Error", err)
+	}
+	if apiErr.Code != http.StatusNotFound {
+		t.Errorf("Code = %d, want 404", apiErr.Code)
+	}
+	if want := `"path/to/module" could not be found.`; apiErr.Message != want {
+		t.Errorf("Message = %q, want %q", apiErr.Message, want)
+	}
+}
+
+func TestFetchErrorEmptyBody(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	err := c.FetchModule(context.Background(), "path/to/module")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	var httpErr HTTPError
+	if !errors.As(err, &httpErr) {
+		t.Fatalf("error type = %T, want HTTPError", err)
+	}
+	if httpErr != HTTPError(http.StatusInternalServerError) {
+		t.Errorf("HTTPError = %d, want %d", httpErr, http.StatusInternalServerError)
+	}
+}
+
 func pageServer(t *testing.T, path, limit string, resp any) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
