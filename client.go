@@ -423,8 +423,8 @@ type Vulnerability struct {
 	FixedVersion string `json:"fixedVersion"`
 }
 
-// Vulnerability fetches module vulnerabilities.
-func (c *Client) Vulnerability(ctx context.Context, path string, opts *ModuleOptions) (*PaginatedResponse[Vulnerability], error) {
+// Vulnerabilities fetches module vulnerabilities.
+func (c *Client) Vulnerabilities(ctx context.Context, path string, opts *ModuleOptions) (*PaginatedResponse[Vulnerability], error) {
 	q := make(url.Values)
 	if opts != nil {
 		addVersion(q, opts.Version)
@@ -676,17 +676,17 @@ func (c *Client) VersionsIter(ctx context.Context, path string, options *ModuleO
 	)
 }
 
-// VulnsIter returns an iterator for paginating through vulnerabilities.
+// VulnerabilitiesIter returns an iterator for paginating through vulnerabilities.
 // The iterator yields pages of vulnerabilities. If Next returns an error, the next call
 // to Next will retry the same page.
-func (c *Client) VulnsIter(ctx context.Context, path string, options *ModuleOptions) iter.Seq2[[]Vulnerability, error] {
+func (c *Client) VulnerabilitiesIter(ctx context.Context, path string, options *ModuleOptions) iter.Seq2[[]Vulnerability, error] {
 	optionsCopy := ModuleOptions{}
 	if options != nil {
 		optionsCopy = *options
 	}
 	return paginateSeq(ctx, &optionsCopy,
 		func(ctx context.Context, currentOptions *ModuleOptions) ([]Vulnerability, string, error) {
-			page, err := c.Vulnerability(ctx, path, currentOptions)
+			page, err := c.Vulnerabilities(ctx, path, currentOptions)
 			if err != nil {
 				return nil, "", err
 			}

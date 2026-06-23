@@ -167,7 +167,7 @@ func TestVulns(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Vulnerability(context.Background(), "golang.org/x/text", &ModuleOptions{Version: "v0.3.0"})
+	resp, err := c.Vulnerabilities(context.Background(), "golang.org/x/text", &ModuleOptions{Version: "v0.3.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,7 +533,7 @@ func TestVulnsIter(t *testing.T) {
 
 	c := NewClient(WithServer(srv.URL))
 	var allVulns []Vulnerability
-	for vulns, err := range c.VulnsIter(context.Background(), "golang.org/x/text", nil) {
+	for vulns, err := range c.VulnerabilitiesIter(context.Background(), "golang.org/x/text", nil) {
 		if err != nil {
 			t.Fatal(err)
 		}
