@@ -6,7 +6,7 @@ Client API implementation of the pkg.go.dev v1beta API.
 
 # LLM generation declaration
 
-The basic code is modified from [pkgsite's cli implementation](https://github.com/golang/pkgsite/blob/8ceeb63dd0a43d712d25f0a4ab2bcd3461f87577/cmd/internal/pkgsite-cli/).
+The basic code is modified from [pkgsite's cli implementation](https://github.com/golang/pkgsite/blob/6775ed7484035d641f6c2dc13a891660cacf7279/cmd/internal/pkgsite-cli/).
 
 # License
 

@@ -760,3 +760,50 @@ func checkQuery(t *testing.T, got, want, name string) {
 		t.Errorf("%s = %q, want %q", name, got, want)
 	}
 }
+
+func TestVersionsPseudo(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		checkQuery(t, r.URL.Path, "/v1beta/versions/golang.org/x/text", "path")
+		checkQuery(t, r.URL.Query().Get("pseudo"), "true", "pseudo")
+		json.NewEncoder(w).Encode(PaginatedResponse[ModuleVersion]{
+			Items: []ModuleVersion{
+				{Version: "v0.0.0-20240101-abc1234"},
+			},
+			Total: 1,
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	resp, err := c.Versions(context.Background(), "golang.org/x/text", &ModuleOptions{PseudoVersions: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Items) != 1 {
+		t.Errorf("len(Items) = %d, want 1", len(resp.Items))
+	}
+}
+
+func TestVersionsUnknownTotal(t *testing.T) {
+	// When results span multiple pages, the server returns Total: -1.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(PaginatedResponse[ModuleVersion]{
+			Items:         []ModuleVersion{{Version: "v0.14.0"}, {Version: "v0.13.0"}},
+			Total:         -1,
+			NextPageToken: "page2",
+		})
+	}))
+	defer srv.Close()
+
+	c := NewClient(WithServer(srv.URL))
+	resp, err := c.Versions(context.Background(), "golang.org/x/text", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Total != -1 {
+		t.Errorf("Total = %d, want -1 (unknown)", resp.Total)
+	}
+	if resp.NextPageToken == "" {
+		t.Error("NextPageToken is empty, want a token")
+	}
+}

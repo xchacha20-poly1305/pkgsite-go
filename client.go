@@ -251,7 +251,10 @@ func (c *Client) Package(ctx context.Context, packagePath string, packageOptions
 
 // PaginatedResponse is a generic paginated response.
 type PaginatedResponse[T any] struct {
-	Items         []T    `json:"items"`
+	Items []T `json:"items"`
+	// Total is the total number of items across all pages.
+	// It may be -1 if the total is unknown, which can happen for the versions
+	// endpoint when there is more than one page of results.
 	Total         int    `json:"total"`
 	NextPageToken string `json:"nextPageToken,omitempty"`
 }
@@ -369,6 +372,10 @@ type ModuleOptions struct {
 	// vulns. Built-in functions are contains, matches (regexp), hasPrefix and
 	// hasSuffix. For example: `hasPrefix(path, "internal/")`.
 	Filter string
+	// PseudoVersions requests that pseudo-versions be included in the result.
+	// By default, only tagged versions (release and prerelease) are returned.
+	// This field applies only to the Versions and VersionsIter methods.
+	PseudoVersions bool
 }
 
 func (o *ModuleOptions) setToken(token string) {
@@ -411,12 +418,19 @@ type ModuleVersion struct {
 }
 
 // Versions fetches module versions.
+//
+// By default, only tagged versions (release and prerelease) are returned.
+// Set [ModuleOptions.PseudoVersions] to true to include pseudo-versions.
+//
+// Note: [PaginatedResponse.Total] may be -1 when results span multiple pages,
+// indicating the total count is unknown.
 func (c *Client) Versions(ctx context.Context, path string, opts *ModuleOptions) (*PaginatedResponse[ModuleVersion], error) {
 	q := make(url.Values)
 	if opts != nil {
 		addLimit(q, opts.Limit)
 		addString(q, "token", opts.Token)
 		addString(q, "filter", opts.Filter)
+		addBool(q, "pseudo", opts.PseudoVersions)
 	}
 	u, err := c.endpoint(apiVersion, "versions", path)
 	if err != nil {
