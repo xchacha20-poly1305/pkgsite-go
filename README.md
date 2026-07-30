@@ -1,6 +1,6 @@
 # pkgsite-go
 
-[![Go Reference](https://pkg.go.dev/badge/codeberg.org/xchacha20-poly1305/pkgsite-go.svg)](https://pkg.go.dev/codeberg.org/xchacha20-poly1305/pkgsite-go)
+[![Go Reference](https://pkg.go.dev/badge/github.com/xchacha20-poly1305/pkgsite-go.svg)](https://pkg.go.dev/github.com/xchacha20-poly1305/pkgsite-go)
 
 Client API implementation of the pkg.go.dev v1beta API.
 
