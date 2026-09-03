@@ -1,4 +1,4 @@
-// Package pkgsite provides a client for the pkg.go.dev v1beta API.
+// Package pkgsite provides a client for the pkg.go.dev v1 API.
 package pkgsite
 
 import (
@@ -18,10 +18,10 @@ const (
 	// DefaultServer is the default pkgsite API server.
 	DefaultServer    = "https://pkg.go.dev"
 	DefaultUserAgent = "pkgsite-go"
-	apiVersion       = "v1beta"
+	apiVersion       = "v1"
 )
 
-// Client fetches data from the pkg.go.dev v1beta API.
+// Client fetches data from the pkg.go.dev v1 API.
 type Client struct {
 	server     string
 	httpClient *http.Client
@@ -75,7 +75,7 @@ func WithUserAgent(userAgent string) Option {
 
 var _ error = (*Error)(nil)
 
-// Error is the error format returned by the v1beta API.
+// Error is the error format returned by the v1 API.
 type Error struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
@@ -132,7 +132,7 @@ func (h HTTPError) Error() string {
 	return fmt.Sprintf("%s (HTTP %d)", http.StatusText(int(h)), h)
 }
 
-// Package is the JSON response for /v1beta/package/.
+// Package is the JSON response for /v1/package/.
 type Package struct {
 	Path              string    `json:"path"`
 	Name              string    `json:"name"`
@@ -157,7 +157,7 @@ type PackageInfo struct {
 	IsRedistributable bool   `json:"isRedistributable"`
 }
 
-// PackagesResponse is the JSON response for /v1beta/packages/.
+// PackagesResponse is the JSON response for /v1/packages/.
 type PackagesResponse struct {
 	ModulePath        string                         `json:"modulePath"`
 	Version           string                         `json:"version"`
@@ -259,14 +259,14 @@ type PaginatedResponse[T any] struct {
 	NextPageToken string `json:"nextPageToken,omitempty"`
 }
 
-// PackageSymbols is the JSON response for /v1beta/symbols/.
+// PackageSymbols is the JSON response for /v1/symbols/.
 type PackageSymbols struct {
 	ModulePath string                    `json:"modulePath"`
 	Version    string                    `json:"version"`
 	Symbols    PaginatedResponse[Symbol] `json:"symbols"`
 }
 
-// Symbol is a single symbol from /v1beta/symbols/.
+// Symbol is a single symbol from /v1/symbols/.
 type Symbol struct {
 	Name     string `json:"name"`
 	Kind     string `json:"kind"`
@@ -299,7 +299,7 @@ func (c *Client) Symbols(ctx context.Context, path string, opts *PackageOptions)
 	return &resp, nil
 }
 
-// PackageImportedBy is the response for /v1beta/imported-by/.
+// PackageImportedBy is the response for /v1/imported-by/.
 type PackageImportedBy struct {
 	ModulePath string                    `json:"modulePath"`
 	Version    string                    `json:"version"`
@@ -329,7 +329,7 @@ func (c *Client) ImportedBy(ctx context.Context, path string, opts *PackageOptio
 	return &resp, nil
 }
 
-// Module is the JSON response for /v1beta/module/.
+// Module is the JSON response for /v1/module/.
 type Module struct {
 	Path    string `json:"path"`
 	Version string `json:"version"`
@@ -346,7 +346,7 @@ type Module struct {
 	Licenses          []License `json:"licenses,omitempty"`
 }
 
-// Readme is README content returned by /v1beta/module/.
+// Readme is README content returned by /v1/module/.
 type Readme struct {
 	Filepath string `json:"filepath"`
 	Contents string `json:"contents"`
@@ -403,7 +403,7 @@ func (c *Client) Module(ctx context.Context, path string, opts *ModuleOptions) (
 	return &resp, nil
 }
 
-// ModuleVersion is a single version from /v1beta/versions/.
+// ModuleVersion is a single version from /v1/versions/.
 type ModuleVersion struct {
 	ModulePath        string    `json:"modulePath"`
 	Version           string    `json:"version"`
@@ -445,7 +445,7 @@ func (c *Client) Versions(ctx context.Context, path string, opts *ModuleOptions)
 	return &resp, nil
 }
 
-// Vulnerability is a single vulnerability from /v1beta/vulns/.
+// Vulnerability is a single vulnerability from /v1/vulns/.
 type Vulnerability struct {
 	ID           string `json:"id"`
 	Summary      string `json:"summary"`
@@ -498,7 +498,7 @@ func (c *Client) Packages(ctx context.Context, modulePath string, opts *ModuleOp
 	return &resp, nil
 }
 
-// SearchResult is a single search result from /v1beta/search/.
+// SearchResult is a single search result from /v1/search/.
 type SearchResult struct {
 	PackagePath string `json:"packagePath"`
 	ModulePath  string `json:"modulePath"`
@@ -555,7 +555,7 @@ func (c *Client) Search(ctx context.Context, query string, opts *SearchOptions) 
 // path may optionally end in "@version" (e.g. "example.com/mod@v1.0.0") to
 // request a specific version; otherwise the latest version is fetched.
 //
-// Unlike the rest of Client's methods, FetchModule does not use the v1beta API: it
+// Unlike the rest of Client's methods, FetchModule does not use the v1 API: it
 // posts to the /fetch/ endpoint, which is not version-prefixed. The call
 // blocks until pkg.go.dev confirms path has been indexed, or returns an
 // error if the fetch failed or the request timed out.
@@ -587,7 +587,7 @@ func (c *Client) post(ctx context.Context, rawURL string) error {
 			return HTTPError(resp.StatusCode)
 		}
 		// The /fetch/ endpoint reports failures as a plain text (sometimes
-		// HTML) body rather than the JSON format used by the v1beta API.
+		// HTML) body rather than the JSON format used by the v1 API.
 		if message := strings.TrimSpace(string(body)); message != "" {
 			return &Error{Code: resp.StatusCode, Message: message}
 		}

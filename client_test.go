@@ -12,8 +12,8 @@ import (
 
 func TestPackage(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1beta/package/encoding/json" {
-			t.Errorf("path = %q, want /v1beta/package/encoding/json", r.URL.Path)
+		if r.URL.Path != "/v1/package/encoding/json" {
+			t.Errorf("path = %q, want /v1/package/encoding/json", r.URL.Path)
 		}
 		if got := r.URL.Query().Get("version"); got != "go1.26.0" {
 			t.Errorf("version = %q, want go1.26.0", got)
@@ -113,8 +113,8 @@ func TestPackageInvalidDocFormat(t *testing.T) {
 
 func TestModule(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1beta/module/golang.org/x/text" {
-			t.Errorf("path = %q, want /v1beta/module/golang.org/x/text", r.URL.Path)
+		if r.URL.Path != "/v1/module/golang.org/x/text" {
+			t.Errorf("path = %q, want /v1/module/golang.org/x/text", r.URL.Path)
 		}
 		checkQuery(t, r.URL.Query().Get("version"), "v0.14.0", "version")
 		checkQuery(t, r.URL.Query().Get("readme"), "true", "readme")
@@ -143,7 +143,7 @@ func TestModule(t *testing.T) {
 }
 
 func TestVersions(t *testing.T) {
-	srv := pageServer(t, "/v1beta/versions/golang.org/x/text", "2", PaginatedResponse[ModuleVersion]{
+	srv := pageServer(t, "/v1/versions/golang.org/x/text", "2", PaginatedResponse[ModuleVersion]{
 		Items: []ModuleVersion{{Version: "v0.14.0"}, {Version: "v0.13.0"}},
 		Total: 2,
 	})
@@ -160,7 +160,7 @@ func TestVersions(t *testing.T) {
 }
 
 func TestVulns(t *testing.T) {
-	srv := pageServer(t, "/v1beta/vulns/golang.org/x/text", "", PaginatedResponse[Vulnerability]{
+	srv := pageServer(t, "/v1/vulns/golang.org/x/text", "", PaginatedResponse[Vulnerability]{
 		Items: []Vulnerability{{ID: "GO-2023-0001", Details: "A vulnerability."}},
 		Total: 1,
 	})
@@ -180,7 +180,7 @@ func TestVulns(t *testing.T) {
 }
 
 func TestPackages(t *testing.T) {
-	srv := pageServer(t, "/v1beta/packages/golang.org/x/text", "", PackagesResponse{
+	srv := pageServer(t, "/v1/packages/golang.org/x/text", "", PackagesResponse{
 		ModulePath:        "golang.org/x/text",
 		Version:           "v0.14.0",
 		IsStandardLibrary: false,
@@ -216,7 +216,7 @@ func TestPackages(t *testing.T) {
 
 func TestSearch(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		checkQuery(t, r.URL.Path, "/v1beta/search", "path")
+		checkQuery(t, r.URL.Path, "/v1/search", "path")
 		checkQuery(t, r.URL.Query().Get("q"), "json parser", "q")
 		checkQuery(t, r.URL.Query().Get("symbol"), "Marshal", "symbol")
 		checkQuery(t, r.URL.Query().Get("filter"), "^encoding/", "filter")
@@ -243,7 +243,7 @@ func TestSearch(t *testing.T) {
 }
 
 func TestSymbols(t *testing.T) {
-	srv := pageServer(t, "/v1beta/symbols/encoding/json", "", PackageSymbols{
+	srv := pageServer(t, "/v1/symbols/encoding/json", "", PackageSymbols{
 		ModulePath: "std",
 		Version:    "go1.26.0",
 		Symbols: PaginatedResponse[Symbol]{
@@ -763,7 +763,7 @@ func checkQuery(t *testing.T, got, want, name string) {
 
 func TestVersionsPseudo(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		checkQuery(t, r.URL.Path, "/v1beta/versions/golang.org/x/text", "path")
+		checkQuery(t, r.URL.Path, "/v1/versions/golang.org/x/text", "path")
 		checkQuery(t, r.URL.Query().Get("pseudo"), "true", "pseudo")
 		json.NewEncoder(w).Encode(PaginatedResponse[ModuleVersion]{
 			Items: []ModuleVersion{
