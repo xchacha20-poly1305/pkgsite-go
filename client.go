@@ -134,19 +134,27 @@ func (h HTTPError) Error() string {
 
 // Package is the JSON response for /v1/package/.
 type Package struct {
-	Path              string    `json:"path"`
-	Name              string    `json:"name"`
-	ModulePath        string    `json:"modulePath"`
-	Version           string    `json:"version"`
-	Synopsis          string    `json:"synopsis"`
-	IsRedistributable bool      `json:"isRedistributable"`
-	IsStandardLibrary bool      `json:"isStandardLibrary"`
-	IsLatest          bool      `json:"isLatest"`
-	GOOS              string    `json:"goos"`
-	GOARCH            string    `json:"goarch"`
-	Docs              string    `json:"docs,omitempty"`
-	Imports           []string  `json:"imports,omitempty"`
-	Licenses          []License `json:"licenses,omitempty"`
+	Path              string            `json:"path"`
+	Name              string            `json:"name"`
+	ModulePath        string            `json:"modulePath"`
+	Version           string            `json:"version"`
+	Synopsis          string            `json:"synopsis"`
+	IsRedistributable bool              `json:"isRedistributable"`
+	IsStandardLibrary bool              `json:"isStandardLibrary"`
+	IsLatest          bool              `json:"isLatest"`
+	GOOS              string            `json:"goos"`
+	GOARCH            string            `json:"goarch"`
+	Docs              string            `json:"docs,omitempty"`
+	Imports           []string          `json:"imports,omitempty"`
+	Licenses          []License         `json:"licenses,omitempty"`
+	ImportedByCounts  *ImportedByCounts `json:"importedByCounts,omitempty"`
+}
+
+// ImportedByCounts holds the numbers of packages and modules importing a package.
+// Each count is -1 when unavailable, for example before it has been calculated.
+type ImportedByCounts struct {
+	Packages int `json:"packages"`
+	Modules  int `json:"modules"`
 }
 
 // PackageInfo is package metadata returned by package list endpoints.
@@ -182,10 +190,12 @@ type PackageOptions struct {
 	Examples bool
 	Imports  bool
 	Licenses bool
-	GOOS     string
-	GOARCH   string
-	Limit    int
-	Token    string
+	// ImportedByCounts requests importer counts from the Package endpoint.
+	ImportedByCounts bool
+	GOOS             string
+	GOARCH           string
+	Limit            int
+	Token            string
 	// Filter is a boolean Go expression used by list endpoints such as symbols
 	// and imported-by to filter the items in the response. Only items for which
 	// the expression evaluates to true are returned.
@@ -208,7 +218,8 @@ func (o *PackageOptions) setToken(token string) {
 // the package lookup. If Doc is set, the response includes rendered package
 // documentation in the requested format: "text", "md", "markdown", or "html".
 // Examples may be requested only when Doc is also set. Imports and Licenses
-// request the corresponding additional response fields.
+// request the corresponding additional response fields. ImportedByCounts
+// requests counts of importing packages and modules.
 //
 // Package validates option combinations before sending the request. Invalid
 // local options return a regular error. Errors returned by the pkg.go.dev API
@@ -233,6 +244,7 @@ func (c *Client) Package(ctx context.Context, packagePath string, packageOptions
 		addBool(q, "examples", packageOptions.Examples)
 		addBool(q, "imports", packageOptions.Imports)
 		addBool(q, "licenses", packageOptions.Licenses)
+		addBool(q, "imported-by-counts", packageOptions.ImportedByCounts)
 		addString(q, "goos", packageOptions.GOOS)
 		addString(q, "goarch", packageOptions.GOARCH)
 	}
@@ -254,7 +266,10 @@ type PaginatedResponse[T any] struct {
 	Items []T `json:"items"`
 	// Total is the total number of items across all pages.
 	// It may be -1 if the total is unknown, which can happen for the versions
-	// endpoint when there is more than one page of results.
+	// endpoint when there is more than one page of results, or for imported-by
+	// when importer counts have not been calculated. For imported-by, a single
+	// page returns the filtered count; multiple pages use a possibly stale,
+	// unfiltered estimate. Use NextPageToken to determine whether to continue.
 	Total         int    `json:"total"`
 	NextPageToken string `json:"nextPageToken,omitempty"`
 }
@@ -500,10 +515,11 @@ func (c *Client) Packages(ctx context.Context, modulePath string, opts *ModuleOp
 
 // SearchResult is a single search result from /v1/search/.
 type SearchResult struct {
-	PackagePath string `json:"packagePath"`
-	ModulePath  string `json:"modulePath"`
-	Version     string `json:"version"`
-	Synopsis    string `json:"synopsis"`
+	PackagePath      string           `json:"packagePath"`
+	ModulePath       string           `json:"modulePath"`
+	Version          string           `json:"version"`
+	Synopsis         string           `json:"synopsis"`
+	ImportedByCounts ImportedByCounts `json:"importedByCounts"`
 }
 
 var _ queryOptions = (*SearchOptions)(nil)
@@ -517,9 +533,12 @@ type SearchOptions struct {
 	// results for which the expression evaluates to true are returned.
 	//
 	// The available variables are the JSON field names of SearchResult:
-	// "packagePath", "modulePath", "version" and "synopsis". Built-in functions
-	// are contains, matches (regexp), hasPrefix and hasSuffix. For example:
-	// `contains(synopsis, "logging")`.
+	// "packagePath", "modulePath", "version", "synopsis" and "importedByCounts".
+	// Nested fields use JSON names, such as importedByCounts.packages and
+	// importedByCounts.modules; each count may be -1 when unavailable.
+	// Built-in functions are contains, matches (regexp), hasPrefix and hasSuffix.
+	// For example: `contains(synopsis, "logging")` or
+	// `importedByCounts.packages > 100`.
 	Filter string
 }
 
