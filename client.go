@@ -2,6 +2,7 @@
 package pkgsite
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -37,15 +38,9 @@ func NewClient(options ...Option) *Client {
 	for _, option := range options {
 		option(c)
 	}
-	if c.server == "" {
-		c.server = DefaultServer
-	}
-	if c.httpClient == nil {
-		c.httpClient = http.DefaultClient
-	}
-	if c.userAgent == "" {
-		c.userAgent = DefaultUserAgent
-	}
+	c.server = cmp.Or(c.server, DefaultServer)
+	c.httpClient = cmp.Or(c.httpClient, http.DefaultClient)
+	c.userAgent = cmp.Or(c.userAgent, DefaultUserAgent)
 	return c
 }
 

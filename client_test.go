@@ -1,7 +1,6 @@
 package pkgsite
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -30,7 +29,7 @@ func TestPackage(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Package(context.Background(), "encoding/json", &PackageOptions{Version: "go1.26.0"})
+	resp, err := c.Package(t.Context(), "encoding/json", &PackageOptions{Version: "go1.26.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +60,7 @@ func TestPackageOptions(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Package(context.Background(), "github.com/foo/bar/pkg", &PackageOptions{
+	resp, err := c.Package(t.Context(), "github.com/foo/bar/pkg", &PackageOptions{
 		Doc:      "md",
 		Examples: true,
 		Imports:  true,
@@ -83,7 +82,7 @@ func TestPackageOptions(t *testing.T) {
 
 func TestPackageExamplesRequiresDoc(t *testing.T) {
 	c := NewClient()
-	_, err := c.Package(context.Background(), "encoding/json", &PackageOptions{Examples: true})
+	_, err := c.Package(t.Context(), "encoding/json", &PackageOptions{Examples: true})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -98,7 +97,7 @@ func TestPackageExamplesRequiresDoc(t *testing.T) {
 
 func TestPackageInvalidDocFormat(t *testing.T) {
 	c := NewClient()
-	_, err := c.Package(context.Background(), "encoding/json", &PackageOptions{Doc: "json"})
+	_, err := c.Package(t.Context(), "encoding/json", &PackageOptions{Doc: "json"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -129,7 +128,7 @@ func TestModule(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Module(context.Background(), "golang.org/x/text", &ModuleOptions{
+	resp, err := c.Module(t.Context(), "golang.org/x/text", &ModuleOptions{
 		Version:  "v0.14.0",
 		Readme:   true,
 		Licenses: true,
@@ -150,7 +149,7 @@ func TestVersions(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Versions(context.Background(), "golang.org/x/text", &ModuleOptions{Limit: 2, Token: "next"})
+	resp, err := c.Versions(t.Context(), "golang.org/x/text", &ModuleOptions{Limit: 2, Token: "next"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,7 +166,7 @@ func TestVulns(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Vulnerabilities(context.Background(), "golang.org/x/text", &ModuleOptions{Version: "v0.3.0"})
+	resp, err := c.Vulnerabilities(t.Context(), "golang.org/x/text", &ModuleOptions{Version: "v0.3.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +198,7 @@ func TestPackages(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Packages(context.Background(), "golang.org/x/text", nil)
+	resp, err := c.Packages(t.Context(), "golang.org/x/text", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +232,7 @@ func TestSearch(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Search(context.Background(), "json parser", &SearchOptions{Symbol: "Marshal", Filter: "^encoding/"})
+	resp, err := c.Search(t.Context(), "json parser", &SearchOptions{Symbol: "Marshal", Filter: "^encoding/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +257,7 @@ func TestSymbols(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Symbols(context.Background(), "encoding/json", nil)
+	resp, err := c.Symbols(t.Context(), "encoding/json", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +301,7 @@ func TestSymbolsIter(t *testing.T) {
 
 	c := NewClient(WithServer(srv.URL))
 	var allSymbols []Symbol
-	for symbols, err := range c.SymbolsIter(context.Background(), "encoding/json", nil) {
+	for symbols, err := range c.SymbolsIter(t.Context(), "encoding/json", nil) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -337,7 +336,7 @@ func TestSymbolsIterWithRetry(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	iter := c.SymbolsIter(context.Background(), "encoding/json", nil)
+	iter := c.SymbolsIter(t.Context(), "encoding/json", nil)
 
 	var symbols []Symbol
 	var firstErr error
@@ -377,7 +376,7 @@ func TestVersionsIter(t *testing.T) {
 
 	c := NewClient(WithServer(srv.URL))
 	var allVersions []ModuleVersion
-	for versions, err := range c.VersionsIter(context.Background(), "golang.org/x/text", nil) {
+	for versions, err := range c.VersionsIter(t.Context(), "golang.org/x/text", nil) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -424,7 +423,7 @@ func TestPackagesIter(t *testing.T) {
 
 	c := NewClient(WithServer(srv.URL))
 	var allPackages []PackageInfo
-	for packages, err := range c.PackagesIter(context.Background(), "golang.org/x/text", nil) {
+	for packages, err := range c.PackagesIter(t.Context(), "golang.org/x/text", nil) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -459,7 +458,7 @@ func TestSearchIter(t *testing.T) {
 
 	c := NewClient(WithServer(srv.URL))
 	var allResults []SearchResult
-	for results, err := range c.SearchIter(context.Background(), "json", nil) {
+	for results, err := range c.SearchIter(t.Context(), "json", nil) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -498,7 +497,7 @@ func TestImportedByIter(t *testing.T) {
 
 	c := NewClient(WithServer(srv.URL))
 	var allPkgs []string
-	for pkgs, err := range c.ImportedByIter(context.Background(), "encoding/json", nil) {
+	for pkgs, err := range c.ImportedByIter(t.Context(), "encoding/json", nil) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -533,7 +532,7 @@ func TestVulnsIter(t *testing.T) {
 
 	c := NewClient(WithServer(srv.URL))
 	var allVulns []Vulnerability
-	for vulns, err := range c.VulnerabilitiesIter(context.Background(), "golang.org/x/text", nil) {
+	for vulns, err := range c.VulnerabilitiesIter(t.Context(), "golang.org/x/text", nil) {
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -560,7 +559,7 @@ func TestImportedBy(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.ImportedBy(context.Background(), "encoding/json", &PackageOptions{Filter: "^github.com/"})
+	resp, err := c.ImportedBy(t.Context(), "encoding/json", &PackageOptions{Filter: "^github.com/"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -584,7 +583,7 @@ func TestAmbiguousPackagePath(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	_, err := c.Package(context.Background(), "github.com/foo/bar/pkg", nil)
+	_, err := c.Package(t.Context(), "github.com/foo/bar/pkg", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -609,7 +608,7 @@ func TestAPIError(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	_, err := c.Package(context.Background(), "nonexistent/pkg", nil)
+	_, err := c.Package(t.Context(), "nonexistent/pkg", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -632,7 +631,7 @@ func TestAPIErrorWithoutJSONBody(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	_, err := c.Package(context.Background(), "encoding/json", nil)
+	_, err := c.Package(t.Context(), "encoding/json", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -656,7 +655,7 @@ func TestHTTPErrorWithInvalidJSONBody(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	_, err := c.Package(context.Background(), "encoding/json", nil)
+	_, err := c.Package(t.Context(), "encoding/json", nil)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -681,7 +680,7 @@ func TestFetch(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	if err := c.FetchModule(context.Background(), "path/to/module"); err != nil {
+	if err := c.FetchModule(t.Context(), "path/to/module"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -695,7 +694,7 @@ func TestFetchWithVersion(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	if err := c.FetchModule(context.Background(), "path/to/module@v1.0.0"); err != nil {
+	if err := c.FetchModule(t.Context(), "path/to/module@v1.0.0"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -707,7 +706,7 @@ func TestFetchError(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	err := c.FetchModule(context.Background(), "path/to/module")
+	err := c.FetchModule(t.Context(), "path/to/module")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -730,7 +729,7 @@ func TestFetchErrorEmptyBody(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	err := c.FetchModule(context.Background(), "path/to/module")
+	err := c.FetchModule(t.Context(), "path/to/module")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -775,7 +774,7 @@ func TestVersionsPseudo(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Versions(context.Background(), "golang.org/x/text", &ModuleOptions{PseudoVersions: true})
+	resp, err := c.Versions(t.Context(), "golang.org/x/text", &ModuleOptions{PseudoVersions: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -796,7 +795,7 @@ func TestVersionsUnknownTotal(t *testing.T) {
 	defer srv.Close()
 
 	c := NewClient(WithServer(srv.URL))
-	resp, err := c.Versions(context.Background(), "golang.org/x/text", nil)
+	resp, err := c.Versions(t.Context(), "golang.org/x/text", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
